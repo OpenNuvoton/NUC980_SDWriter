@@ -1131,7 +1131,7 @@ int32_t main(void)
             for(blkindx=0; blkindx<end_blk; blkindx++) {
 _retry_spinand_1:
                 if (blkindx > pSN->SPINand_BlockPerFlash) {
-                    printf("Write out of SPI NAND flash!\n");
+                    printf("Write out of SPI NAND flash! blkindx[%d], BlockPerFlash = %d\n", blkindx, pSN->SPINand_BlockPerFlash);
                     while(1) {
                         WDT_RSTCNT;
                     }
@@ -1140,17 +1140,23 @@ _retry_spinand_1:
                 addr = (unsigned char*)Buff;
                 page = pSN->SPINand_PagePerBlock * (blkindx);
                 printf("blkindx = %d   page = %d   page_count=%d\n", blkindx, page, page_count);
-                spiNAND_BlockErase(((page>>8)&0xFF), (page&0xFF)); // block erase
-                status = spiNAND_StatusRegister(3);
-                status = (status&0x0C)>>2;
-                if (status != 0) {
-                    if(spiNAND_bad_block_check(page)) {
-                        printf("Bad block[%d]!\n",blkindx);
-                    }
+                if(spiNAND_bad_block_check(page) == 1) {
+                    printf("bad block = %d\n", blkindx);
                     blkindx++;
                     end_blk++;
                     goto _retry_spinand_1;
+                } else {
+                    spiNAND_BlockErase(((page>>8)&0xFF), (page&0xFF)); // block erase
+                    status = spiNAND_Check_Program_Erase_Fail_Flag();
+                    if (status != 0) {
+                        printf("Error erase status! spiNANDMarkBadBlock blockNum = %d\n", blkindx);
+                        spiNANDMarkBadBlock(blkindx*pSN->SPINand_PagePerBlock);
+                        blkindx++;
+                        end_blk++;
+                        goto _retry_spinand_1;
+                    }
                 }
+
                 // write block
                 for (i=0; i<page_count; i++) {
                     //printf("page+i=%d\n",page+i);
@@ -1163,9 +1169,8 @@ _retry_spinand_1:
                     WDT_RSTCNT;
                     status = (spiNAND_StatusRegister(3) & 0x0C)>>2;
                     if (status != 0) {
-                        if (spiNAND_bad_block_check(page)) {
-                            printf("Bad block[%d]!\n",blkindx);
-                        }
+                        spiNANDMarkBadBlock(blkindx*pSN->SPINand_PagePerBlock);
+                        printf("Error write status! Bad block[%d]!\n",blkindx);
                         blkindx++;
                         end_blk++;
                         goto _retry_spinand_1;
@@ -1218,7 +1223,7 @@ _retry_spinand_1:
                     }
 _retry_spinand_2:
                     if (blkindx > pSN->SPINand_BlockPerFlash) {
-                        printf("Write out of SPI NAND flash!\n");
+                        printf("Write out of SPI NAND flash! blkindx[%d], BlockPerFlash = %d\n", blkindx, pSN->SPINand_BlockPerFlash);
                         while(1) {
                             WDT_RSTCNT;
                         }
@@ -1227,12 +1232,17 @@ _retry_spinand_2:
                     page = pSN->SPINand_PagePerBlock * (blkindx);
                     addr = (unsigned int)Buff;
                     printf("blkindx = %d   page = %d   page_count=%d\n", blkindx, page, page_count);
-                    spiNAND_BlockErase(((page>>8)&0xFF), (page&0xFF)); // block erase
-                    status = spiNAND_StatusRegister(3);
-                    status = (status&0x0C)>>2;
-                    if (status != 0) {
-                        if (spiNAND_bad_block_check(page)) {
-                            printf("bad block[%d]\n",blkindx);
+                    if(spiNAND_bad_block_check(page) == 1) {
+                        printf("bad block = %d\n", blkindx);
+                        blkindx++;
+                        endblk++;
+                        goto _retry_spinand_2;
+                    } else {
+                        spiNAND_BlockErase(((page>>8)&0xFF), (page&0xFF)); // block erase
+                        status = spiNAND_Check_Program_Erase_Fail_Flag();
+                        if (status != 0) {
+                            printf("Error erase status! spiNANDMarkBadBlock blockNum = %d\n", blkindx);
+                            spiNANDMarkBadBlock(blkindx*pSN->SPINand_PagePerBlock);
                             blkindx++;
                             endblk++;
                             goto _retry_spinand_2;
@@ -1251,9 +1261,8 @@ _retry_spinand_2:
                         WDT_RSTCNT;
                         status = (spiNAND_StatusRegister(3) & 0x0C)>>2;
                         if (status != 0) {
-                            if (spiNAND_bad_block_check(page)) {
-                                printf("bad block[%d]\n",blkindx);
-                            }
+                            spiNANDMarkBadBlock(blkindx*pSN->SPINand_PagePerBlock);
+                            printf("Error write status! Bad block[%d]!\n",blkindx);
                             blkindx++;
                             endblk++;
                             goto _retry_spinand_2;
@@ -1307,7 +1316,7 @@ _retry_spinand_2:
 
 _retry_spinand_3:
             if (blkindx > pSN->SPINand_BlockPerFlash) {
-                printf("Write out of SPI NAND flash!\n");
+                printf("Write out of SPI NAND flash! blkindx[%d], BlockPerFlash = %d\n", blkindx, pSN->SPINand_BlockPerFlash);
                 while(1) {
                     WDT_RSTCNT;
                 }
@@ -1317,12 +1326,16 @@ _retry_spinand_3:
             addr = (unsigned int)pENV;
             page = pSN->SPINand_PagePerBlock * (blkindx);
             printf("blkindx = %d   page = %d   page_count=%d\n", blkindx, page, page_count);
-            spiNAND_BlockErase(((page>>8)&0xFF), (page&0xFF)); // block erase
-            status = spiNAND_StatusRegister(3);
-            status = (status&0x0C)>>2;
-            if (status != 0) {
-                if (spiNAND_bad_block_check(page)) {
-                    printf("bad block[%d]\n",blkindx);
+            if(spiNAND_bad_block_check(page) == 1) {
+                printf("bad block = %d\n", blkindx);
+                blkindx++;
+                goto _retry_spinand_3;
+            } else {
+                spiNAND_BlockErase(((page>>8)&0xFF), (page&0xFF)); // block erase
+                status = spiNAND_Check_Program_Erase_Fail_Flag();
+                if (status != 0) {
+                    printf("Error erase status! spiNANDMarkBadBlock blockNum = %d\n", blkindx);
+                    spiNANDMarkBadBlock(blkindx*pSN->SPINand_PagePerBlock);
                     blkindx++;
                     goto _retry_spinand_3;
                 }
@@ -1339,11 +1352,10 @@ _retry_spinand_3:
                 WDT_RSTCNT;
                 status = (spiNAND_StatusRegister(3) & 0x0C)>>2;
                 if (status != 0) {
-                    if (spiNAND_bad_block_check(page)) {
-                        printf("bad block[%d]\n",blkindx);
-                        blkindx++;
-                        goto _retry_spinand_3;
-                    }
+                    spiNANDMarkBadBlock(blkindx*pSN->SPINand_PagePerBlock);
+                    printf("Error write status! Bad block[%d]!\n",blkindx);
+                    blkindx++;
+                    goto _retry_spinand_3;
                 }
                 addr += pSN->SPINand_PageSize;
             }

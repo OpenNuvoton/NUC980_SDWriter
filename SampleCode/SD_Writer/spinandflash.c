@@ -135,6 +135,19 @@ void spiNAND_LUT_Read(uint16_t* LBA, uint16_t* PBA)
     return;
 }
 
+void spiNANDMarkBadBlock(uint32_t page_address)
+{
+    unsigned char data;
+
+    spiNAND_BlockErase(page_address/0x100, page_address%0x100);
+
+    /* Set byte 2048 to 0xF0 */
+    data = 0xF0;
+    spiNAND_Pageprogram_Pattern(8, 0, &data, 1);
+    spiNAND_Program_Excute(page_address /0x100, page_address %0x100);
+
+}
+
 /********************\
 Function: Serial NAND Bad block mark check
 Argument:
@@ -641,7 +654,7 @@ int8_t spiNAND_ReadyBusy_Check()
 
     SetTimer(5000);
     if(pSN->SPINand_ID == 0xEFAA21) { /* winbond */
-        //if(1){
+    //if(1){
         while((SR & 0x1) != 0x00) {
             spiNAND_CS_LOW();
             SPIin(0x0F);
@@ -650,7 +663,7 @@ int8_t spiNAND_ReadyBusy_Check()
             spiNAND_CS_HIGH();
             if (inpw(REG_ETMR0_ISR) & 0x1) {
                 outpw(REG_ETMR0_ISR, 0x1);
-                printf("XXX spiNAND_ReadyBusy_Check timeout\n");
+                printf("Error winbond spiNAND_ReadyBusy_Check timeout\n");
                 return 1;
             }
         }
@@ -666,12 +679,12 @@ int8_t spiNAND_ReadyBusy_Check()
 
             if (inpw(REG_ETMR0_ISR) & 0x1) {
                 outpw(REG_ETMR0_ISR, 0x1);
-                printf("XXX spiNAND_ReadyBusy_Check timeout\n");
+                printf("Error MXIC spiNAND_ReadyBusy_Check timeout\n");
                 return 1;
             }
         }
     }
-
+			
     return 0;
 }
 
@@ -687,6 +700,7 @@ uint32_t spiNAND_ReadID()
     SPIin(0x9F);
     SPIin(0x00); // dummy
     JEDECID += SPIin(0x00);
+
     if(JEDECID == 0xC2) { // mxic Read ID BYTE0, BYTE1
         JEDECID <<= 8;
         JEDECID += SPIin(0x00);
@@ -843,8 +857,8 @@ INT spiNAND_ReadINFO(SPINAND_INFO_T *pSN)
             info.SPINand_BlockPerFlash = 0x400;// 1024 blocks per 1G NAND
             info.SPINand_PagePerBlock = 64; // 64 pages per block
 
-        } else  if(pSN->SPINand_ID == 0xbe20b) { /* XTX  2G */
-            pSN->SPINand_ID = 0xbe20b;
+        } else  if(pSN->SPINand_ID == 0xbe20b || pSN->SPINand_ID == 0xbf20b) { /* XTX  2G */
+            pSN->SPINand_ID = pSN->SPINand_ID;
             pSN->SPINand_PageSize=0x800; // 2048 bytes per page
             pSN->SPINand_SpareArea=0x40;    // 64 bytes per page spare area
             pSN->SPINand_QuadReadCmd = 0x6b;
@@ -855,7 +869,7 @@ INT spiNAND_ReadINFO(SPINAND_INFO_T *pSN)
             pSN->SPINand_BlockPerFlash = 0x800;// 2048 blocks per 2G NAND
             pSN->SPINand_PagePerBlock = 64; // 64 pages per block
 
-            info.SPINand_ID = 0xbe20b;
+            info.SPINand_ID = pSN->SPINand_ID;
             info.SPINand_PageSize=0x800; // 2048 bytes per page
             info.SPINand_SpareArea=0x40;    // 64 bytes per page spare area
             info.SPINand_QuadReadCmd = 0x6b;
@@ -866,8 +880,9 @@ INT spiNAND_ReadINFO(SPINAND_INFO_T *pSN)
             info.SPINand_BlockPerFlash= 0x800;// 2048 blocks per 2G NAND
             info.SPINand_PagePerBlock = 64; // 64 pages per block
 
-        } else  if(pSN->SPINand_ID == 0xbe10b) { /* XTX  1G */
-            pSN->SPINand_ID = 0xbe10b;
+        } else  if(pSN->SPINand_ID == 0xbe10b  || pSN->SPINand_ID == 0xbf10b ||
+				   pSN->SPINand_ID == 0xd511d5 || pSN->SPINand_ID == 0xd51cd5 ) { /* XTX/MK  1G */
+            //pSN->SPINand_ID = 0xbe10b;
             pSN->SPINand_PageSize=0x800; // 2048 bytes per page
             pSN->SPINand_SpareArea=0x40;    // 64 bytes per page spare area
             pSN->SPINand_QuadReadCmd = 0x6b;
@@ -878,7 +893,7 @@ INT spiNAND_ReadINFO(SPINAND_INFO_T *pSN)
             pSN->SPINand_BlockPerFlash = 0x400;// 1024 blocks per 1G NAND
             pSN->SPINand_PagePerBlock = 64; // 64 pages per block
 
-            info.SPINand_ID = 0xbe10b;
+            info.SPINand_ID = pSN->SPINand_ID;//0xbe10b;
             info.SPINand_PageSize=0x800; // 2048 bytes per page
             info.SPINand_SpareArea=0x40;    // 64 bytes per page spare area
             info.SPINand_QuadReadCmd = 0x6b;
@@ -890,7 +905,7 @@ INT spiNAND_ReadINFO(SPINAND_INFO_T *pSN)
             info.SPINand_PagePerBlock = 64; // 64 pages per block
 
         } else {
-            printf("SPI NAND ID not support!!\n");
+            printf("SPI NAND ID not support!! 0x%x\n", pSN->SPINand_ID);
             pSN->SPINand_ID = 0x0;//pSN->SPINand_ID;
         }
     }
