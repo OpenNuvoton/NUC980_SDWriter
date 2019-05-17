@@ -635,6 +635,41 @@ static void _parsing_EnvTxt(int FileLen, char *pEnv)
 
 }
 
+static void _parsing_SPINAND_EnvTxt(int FileLen, char *pEnv)
+{
+    int src_c =0;
+    int dest_c = 4; /* The first four bytes are checksum */
+
+    while (src_c < FileLen) {
+        if (Buff[src_c] == 0) //EOF
+            break;
+
+        if ((Buff[src_c] == 0xD) && (Buff[src_c+1] == 0xA)) {//Line end
+            pEnv[dest_c] = 0;
+            src_c += 2;
+            dest_c++;
+        } else {
+            pEnv[dest_c] = Buff[src_c];
+            src_c++;
+            dest_c++;
+        }
+    }
+
+    *(unsigned int *)pEnv = CalculateCRC32((unsigned char *)(pEnv + 4), 0x20000 - 4);
+
+    if (0) {
+        int k;
+        printf("ENV:\n");
+        for (k=0; k<0x20000; k++) {
+            printf("0x%x ",pEnv[k]);
+            if (k && ((k+1)%16 == 0))
+                printf("\n");
+        }
+        printf("\n");
+    }
+
+}
+
 static void Form_BootCode_Header(unsigned int *header_size)
 {
     FRESULT res;
@@ -1304,7 +1339,7 @@ _retry_spinand_2:
                 }
             }
             memset((void*)pENV,0,0x20000);
-            _parsing_EnvTxt(s2,pENV);
+            _parsing_SPINAND_EnvTxt(s2,pENV);
             f_close(&file2);
 
             //Burn to SPI NAND flash
