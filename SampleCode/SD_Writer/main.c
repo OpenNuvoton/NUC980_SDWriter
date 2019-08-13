@@ -123,6 +123,8 @@ void SendAck(UINT32 status);
 void SendAck(UINT32 status)
 {
 }
+unsigned char *pImageList;
+unsigned char imageList[512];
 
 /* Set ETimer0 : unit is micro-second */
 void SetTimer(unsigned int count)
@@ -355,6 +357,75 @@ void get_line (char *buff, int len)
 
 }
 
+void SDH0_IRQHandler(void)
+{
+    unsigned int volatile isr;
+    unsigned int volatile ier;
+
+    // FMI data abort interrupt
+    if (SDH0->GINTSTS & SDH_GINTSTS_DTAIF_Msk) {
+        /* ResetAllEngine() */
+        SDH0->GCTL |= SDH_GCTL_GCTLRST_Msk;
+    }
+
+    //----- SD interrupt status
+    isr = SDH0->INTSTS;
+    if (isr & SDH_INTSTS_BLKDIF_Msk) {
+        // block down
+        g_u8SDDataReadyFlag = TRUE;
+        SDH0->INTSTS = SDH_INTSTS_BLKDIF_Msk;
+    }
+
+    if (isr & SDH_INTSTS_CDIF_Msk) {   // card detect
+        //----- SD interrupt status
+        // it is work to delay 50 times for SDH_CLK = 200KHz
+        {
+            int volatile i;         // delay 30 fail, 50 OK
+            for (i=0; i<0x500; i++);  // delay to make sure got updated value from REG_SDISR.
+            isr = SDH0->INTSTS;
+        }
+
+        if (isr & SDH_INTSTS_CDSTS_Msk) {
+            printf("\n***** card remove !\n");
+            SD0.IsCardInsert = FALSE;   // SDISR_CD_Card = 1 means card remove for GPIO mode
+            memset(&SD0, 0, sizeof(SDH_INFO_T));
+        }
+        else {
+            printf("***** card insert !\n");
+            SDH_Open(SDH0, CardDetect_From_GPIO);
+            SDH_Probe(SDH0);
+        }
+
+        SDH0->INTSTS = SDH_INTSTS_CDIF_Msk;
+    }
+
+    // CRC error interrupt
+    if (isr & SDH_INTSTS_CRCIF_Msk)
+    {
+        if (!(isr & SDH_INTSTS_CRC16_Msk)) {
+            //printf("***** ISR sdioIntHandler(): CRC_16 error !\n");
+            // handle CRC error
+        }
+        else if (!(isr & SDH_INTSTS_CRC7_Msk)) {
+            if (!g_u8R3Flag) {
+                //printf("***** ISR sdioIntHandler(): CRC_7 error !\n");
+                // handle CRC error
+            }
+        }
+        SDH0->INTSTS = SDH_INTSTS_CRCIF_Msk;      // clear interrupt flag
+    }
+
+    if (isr & SDH_INTSTS_DITOIF_Msk) {
+        printf("***** ISR: data in timeout !\n");
+        SDH0->INTSTS |= SDH_INTSTS_DITOIF_Msk;
+    }
+
+    // Response in timeout interrupt
+    if (isr & SDH_INTSTS_RTOIF_Msk) {
+        printf("***** ISR: response in timeout !\n");
+        SDH0->INTSTS |= SDH_INTSTS_RTOIF_Msk;
+    }
+}
 
 void SDH_IRQHandler(void)
 {
@@ -473,8 +544,14 @@ void SYS_Init(void)
     outpw(REG_CLK_PCLKEN0, inpw(REG_CLK_PCLKEN0) | 0x1);
 
     /* select multi-function-pin */
-    /* SD Port 0 -> PF0~6 */
-    outpw(REG_SYS_GPF_MFPL, (inpw(REG_SYS_GPF_MFPL)&0x0FFFFFFF) | 0x02222222);
+    if (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300)) {
+        /* SD Port 0 -> PC5~10,PC12 */
+        outpw(REG_SYS_GPC_MFPL, (inpw(REG_SYS_GPC_MFPL)& ~0xFFF00000) | 0x66600000);
+        outpw(REG_SYS_GPC_MFPH, (inpw(REG_SYS_GPC_MFPH)& ~0x000F0FFF) | 0x00060666);
+    } else {
+        /* SD Port 1 -> PF0~6 */
+        outpw(REG_SYS_GPF_MFPL, (inpw(REG_SYS_GPF_MFPL)& ~0x0FFFFFFF) | 0x02222222);
+    }
     //SD_Drv = 0;
 }
 
@@ -751,12 +828,11 @@ int32_t main(void)
     long        p1, p2, p3;
     BYTE        *buf;
     FATFS       *fs;              /* Pointer to file system object */
-    TCHAR       sd_path[] = { '1', ':', 0 };    /* SD drive started from 0 */
+    TCHAR       sd_path[] = { '0', ':', 0 };    /* SD drive started from 0 */
     FRESULT     res;
 
     DIR dir;                /* Directory object */
     UINT s1, s2, cnt;
-    static const BYTE ft[] = {0, 12, 16, 32};
     DWORD ofs = 0, sect = 0;
     UINT ImgNo,ImageCnt;
 
@@ -781,17 +857,31 @@ int32_t main(void)
     ETimer1_Init();
     fmiHWInit();
 
-    sysInstallISR(IRQ_LEVEL_1, IRQ_SDH, (PVOID)SDH_IRQHandler);
-    /* enable CPSR I bit */
-    sysSetLocalInterrupt(ENABLE_IRQ);
-    sysEnableInterrupt(IRQ_SDH);
+    if (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300)) {
+        /* Use SD0 */
+        printf("Reading SD card in SD port 0 .....\n\n");
+        sd_path[0] = '0';
+        sysInstallISR(IRQ_LEVEL_1, IRQ_FMI, (PVOID)SDH0_IRQHandler);
+        /* enable CPSR I bit */
+        sysSetLocalInterrupt(ENABLE_IRQ);
+        sysEnableInterrupt(IRQ_FMI);
 
-    SDH_Open_Disk(SDH1, CardDetect_From_GPIO);
-    f_chdrive(sd_path);          /* set default path */
+        SDH_Open_Disk(SDH0, CardDetect_From_GPIO);
+        f_chdrive(sd_path);          /* set default path */
+        SDH_CardDetection(SDH0);
+    } else {
+        /* Use SD1 */
+        printf("Reading SD card in SD port 1 .....\n\n");
+        sd_path[0] = '1';
+        sysInstallISR(IRQ_LEVEL_1, IRQ_SDH, (PVOID)SDH_IRQHandler);
+        /* enable CPSR I bit */
+        sysSetLocalInterrupt(ENABLE_IRQ);
+        sysEnableInterrupt(IRQ_SDH);
 
-
-    SDH_CardDetection(SDH1);
-
+        SDH_Open_Disk(SDH1, CardDetect_From_GPIO);
+        f_chdrive(sd_path);          /* set default path */
+        SDH_CardDetection(SDH1);
+    }
 
     while (*ptr == ' ') ptr++;
     res = f_opendir(&dir, ptr);
@@ -1143,7 +1233,7 @@ int32_t main(void)
                 printf("f_open [%s] ok\n", Ini_Writer.Loader.FileName);
 
             //Burn to SPI NAND flash
-            printf("Write SPL to [%s] NAND flash ... start\n",Ini_Writer.Loader.FileName);
+            printf("Write SPL [%s] to SPI NAND flash ... start\n",Ini_Writer.Loader.FileName);
 
             //Write the first block
             Form_BootCode_Header(&header_size);

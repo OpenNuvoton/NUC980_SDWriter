@@ -18,8 +18,11 @@
 #include "sys.h"
 #include "sd.h"
 #include "sdglue2.h"
+//#include "usbd.h"
 
-#define MSG_DEBUG printf
+#define MSG_DEBUG        printf
+#define DOWNLOAD_BASE    0x10000
+#define NON_CACHE        0x80000000
 
 DISK_DATA_T SD_DiskInfo;
 FMI_SD_INFO_T *_pSD0 = NULL;
@@ -33,26 +36,22 @@ INT  fmiInitSDDevice(void)
     FMI_SD_INFO_T *pSD_temp = NULL;
 
     /* select eMMC/SD function pins */
-    //if (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300)) {
+    if (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300)) {
         /* Set GPC for eMMC0/SD0 */
         outpw(REG_SYS_GPC_MFPL, 0x66600000);
         outpw(REG_SYS_GPC_MFPH, 0x00060666);
-    //} else {
-    //    /* Set GPF for eMMC1/SD1 */
-    //    outpw(REG_SYS_GPF_MFPL, 0x02222222);
-    //}
+    } else {
+        /* Set GPF for eMMC1/SD1 */
+        outpw(REG_SYS_GPF_MFPL, 0x02222222);
+    }
 
-#if 0 //CWWeng 2018.11.16 : SD 
     // enable SD
     outpw(REG_EMMC_CTL, FMI_CSR_SD_EN);
-#else  //eMMC
-		outpw(REG_FMI_CTL, FMI_CSR_SD_EN);
-#endif
-    outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) | SD_CSR_SWRST);     // SD software reset
+    outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) | SD_CSR_SWRST);// SD software reset
     while(inpw(REG_FMI_EMMCCTL) & SD_CSR_SWRST);
-    outpw(REG_FMI_EMMCCTL, (inpw(REG_FMI_EMMCCTL) & ~SD_CSR_NWR_MASK) | (0x09 << 24));        // set SDNWR = 9
-    outpw(REG_FMI_EMMCCTL, (inpw(REG_FMI_EMMCCTL) & ~SD_CSR_BLK_CNT_MASK) | (0x01 << 16));    // set BLKCNT = 1
-    outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) & ~SD_CSR_DBW_4BIT);     // SD 1-bit data bus
+    outpw(REG_FMI_EMMCCTL, (inpw(REG_FMI_EMMCCTL) & ~SD_CSR_NWR_MASK) | (0x09 << 24));// set SDNWR = 9
+    outpw(REG_FMI_EMMCCTL, (inpw(REG_FMI_EMMCCTL) & ~SD_CSR_BLK_CNT_MASK) | (0x01 << 16));// set BLKCNT = 1
+    outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) & ~SD_CSR_DBW_4BIT);// SD 1-bit data bus
     pSD_temp = malloc(sizeof(FMI_SD_INFO_T)+4);
     if (pSD_temp == NULL)
         return -1;
@@ -84,7 +83,7 @@ INT  fmiInitSDDevice(void)
 
 INT fmiSD_Read(UINT32 uSector, UINT32 uBufcnt, UINT32 uDAddr)
 {
-    int status=0;
+    int volatile status=0;
     // enable SD
     status = SD_Read_in(pSD0, uSector, uBufcnt, uDAddr);
     return status;
@@ -92,9 +91,9 @@ INT fmiSD_Read(UINT32 uSector, UINT32 uBufcnt, UINT32 uDAddr)
 
 INT fmiSD_Write(UINT32 uSector, UINT32 uBufcnt, UINT32 uSAddr)
 {
-    int status=0;
+    int volatile status=0;
     // enable SD
-    printf("uSector = %d   uBufcnt =%d   uSAddr=0x%x\n", uSector, uBufcnt, uSAddr);
+    MSG_DEBUG("uSector = %d   uBufcnt =%d   uSAddr=0x%x\n", uSector, uBufcnt, uSAddr);
     status = SD_Write_in(pSD0, uSector, uBufcnt, uSAddr);
     return status;
 }
@@ -260,7 +259,6 @@ int ChangeMMCImageType(UINT32 imageNo, UINT32 imageType)
 
 int DelMMCImage(UINT32 imageNo)
 {
-#if 0 //CWWeng 2018.11.16 temp mark it
     int i=0, count;
     unsigned int *ptr,*ptr2;
     //UCHAR _fmi_ucBuffer[512];
@@ -298,15 +296,11 @@ int DelMMCImage(UINT32 imageNo)
     }
 
     SendAck(100);
-		
-#endif //CWWeng 2018.11.16
-		
     return Successful;
 }
 
 void GetMMCImage(void)
 {
-#if 0 //CWWeng 2018.11.16 
     int count=0;
     MSG_DEBUG("Get mmc flash Image ...\n");
     pImageList=((unsigned char*)(((unsigned int)imageList)|NON_CACHE));
@@ -314,12 +308,11 @@ void GetMMCImage(void)
     /* send image info to host */
     *(unsigned int *)(pImageList+0) = GetMMCImageInfo((unsigned int *)(pImageList+8));
     *(unsigned int *)(pImageList+4) = GetMMCReserveSpace();
-    usb_send(pImageList, 8);
+//    usb_send(pImageList, 8);
     count = *(unsigned int *)pImageList;
     if (count < 0)
         count = 0;
     MSG_DEBUG("count=%d,ReserveSpace=%d\n",count,*(unsigned int *)(pImageList+4));
-    usb_send(pImageList+8, count*(sizeof(FW_MMC_IMAGE_T)));
+//    usb_send(pImageList+8, count*(sizeof(FW_MMC_IMAGE_T)));
     MSG_DEBUG("finish get mmc image [%d]!!\n", count);
-#endif
 }

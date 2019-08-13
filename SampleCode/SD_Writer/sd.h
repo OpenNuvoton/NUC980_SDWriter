@@ -97,8 +97,6 @@
 #define SD_ISR_DATA1        ((unsigned int)0x00040000)
 
 
-//CWWeng 2018.11.16 copy from NuWriter firmware nuc980.h
-#define    SDSEL_BA				(unsigned int) 0xB0019000  //CWWeng 2018.11.16 : FMI 
 
 /* eMMC Registers */
 #define     REG_EMMC_BUFFER      (SDSEL_BA+0x000)   /*!< FMI Embedded Buffer Word */

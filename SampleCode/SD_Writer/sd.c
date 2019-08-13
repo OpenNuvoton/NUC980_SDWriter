@@ -9,14 +9,15 @@
  * Copyright (C) 2018 Nuvoton Technology Corp. All rights reserved.
 *****************************************************************************/
 
-//#include "sys.h"
+#include "nuc980.h"
+#include "sys.h"
 #include "sd.h"
 //#include "usbd.h"
 
-#define MSG_DEBUG printf
+#define MSG_DEBUG       printf
 
 #define SD_BLOCK_SIZE   512
-
+#define SD_RSTCNT       0x100
 
 // global variables
 // For response R3 (such as ACMD41, CRC-7 is invalid; but SD controller will still
@@ -122,7 +123,10 @@ int SD_SDCmdAndRsp2(FMI_SD_INFO_T *pSD, UINT8 ucCmd, UINT32 uArg, UINT32 *puR2pt
     outpw(REG_FMI_EMMCCMD, uArg);
     outpw(REG_FMI_EMMCCTL, (inpw(REG_FMI_EMMCCTL)&(~SD_CSR_CMD_MASK))|(ucCmd << 8)|(SD_CSR_CO_EN | SD_CSR_R2_EN));
 
-    while(inpw(REG_FMI_EMMCCTL) & SD_CSR_R2_EN);
+    while(inpw(REG_FMI_EMMCCTL) & SD_CSR_R2_EN) {
+        if (pSD->bIsCardInsert == FALSE)
+            return SD_NO_SD_CARD;
+    }
 
     if (inpw(REG_FMI_EMMCINTSTS) & SD_ISR_CRC7_OK) {
         for (i=0; i<5; i++)
@@ -143,9 +147,14 @@ int SD_SDCmdAndRspDataIn(FMI_SD_INFO_T *pSD, UINT8 ucCmd, UINT32 uArg)
     outpw(REG_FMI_EMMCCMD, uArg);
     outpw(REG_FMI_EMMCCTL, (inpw(REG_FMI_EMMCCTL)&(~SD_CSR_CMD_MASK))|(ucCmd << 8)|(SD_CSR_CO_EN | SD_CSR_RI_EN | SD_CSR_DI_EN));
 
-    while (inpw(REG_FMI_EMMCCTL) & SD_CSR_RI_EN);
-
-    while (inpw(REG_FMI_EMMCCTL) & SD_CSR_DI_EN);
+    while (inpw(REG_FMI_EMMCCTL) & SD_CSR_RI_EN) {
+        if (pSD->bIsCardInsert == FALSE)
+            return SD_NO_SD_CARD;
+    }
+    while (inpw(REG_FMI_EMMCCTL) & SD_CSR_DI_EN) {
+        if (pSD->bIsCardInsert == FALSE)
+            return SD_NO_SD_CARD;
+    }
 
     if (!(inpw(REG_FMI_EMMCINTSTS) & SD_ISR_CRC7_OK)) {     // check CRC7
         return SD_CRC7_ERROR;
@@ -157,28 +166,21 @@ int SD_SDCmdAndRspDataIn(FMI_SD_INFO_T *pSD, UINT8 ucCmd, UINT32 uArg)
     return Successful;
 }
 
-/*-----------------------------------------------------------------------------
- * 2011/6/24 by CJChen1@nuvoton.com, To set up the clock for SD_CLK
- *      SD_CLK = UPLL / ((CLKDIV2[SD_N0] + 1) * (CLKDIV2[SD_N1] + 1))
- *      Support both FPGA board and real chip.
- *          FPGA board don't support CLKDIV2[SD_N0] divider.
- *      INPUT: sd_clock_khz: the SD clock you wanted with unit KHz.
- *---------------------------------------------------------------------------*/
-// there are 3 bits for divider N0, maximum is 8
-#define SD_CLK_DIV0_MAX     8
-// there are 8 bits for divider N1, maximum is 256
-#define SD_CLK_DIV1_MAX     256
-
 void SD_Set_clock(UINT32 sd_clock_khz)
 {
-    UINT32 div1, i;
-    div1=(12000/sd_clock_khz)-1;//_sd_ReferenceClock
-    outpw(REG_CLK_DIVCTL3, (inpw(REG_CLK_DIVCTL3) & ~0x18) | (0x0 << 3)); 	    // SD clock from XIN [4:3]
-    outpw(REG_CLK_DIVCTL3, (inpw(REG_CLK_DIVCTL3) & ~0xff00) | (div1 << 8)); 	// SD clock divided by CLKDIV3[SD_N] [15:8]
-    outpw(REG_CLK_DIVCTL9, (inpw(REG_CLK_DIVCTL9) & ~0x18) | (0x0 << 3)); 	    // SD clock from XIN [4:3]
-    outpw(REG_CLK_DIVCTL9, (inpw(REG_CLK_DIVCTL9) & ~0xff00) | (div1 << 8)); 	// SD clock divided by CLKDIV3[SD_N] [15:8]
-    for(i=0; i<1000; i++);  // waiting for clock become stable
-    MSG_DEBUG("clock: sd_clock_khz= %d   div1 = %d, REG_CLK_DIVCTL3=0x%x\n", sd_clock_khz, div1, inpw(REG_CLK_DIVCTL3));
+    UINT32 div;
+    if(sd_clock_khz<2000) {
+        outpw(REG_CLK_DIVCTL9, (inpw(REG_CLK_DIVCTL9) & ~0x18) | (0x0 << 3)); 	    // SD clock from XIN [4:3]
+        outpw(REG_CLK_DIVCTL3, (inpw(REG_CLK_DIVCTL3) & ~0x18) | (0x0 << 3)); 	    // SD clock from XIN [4:3]
+        div=(12000/sd_clock_khz)-1;
+    } else {
+        outpw(REG_CLK_DIVCTL9, (inpw(REG_CLK_DIVCTL9) & ~0x18) | (0x3 << 3)); 	    // SD clock from UPLL [4:3]
+        outpw(REG_CLK_DIVCTL3, (inpw(REG_CLK_DIVCTL3) & ~0x18) | (0x3 << 3)); 	    // SD clock from XIN [4:3]
+        div=(300000/sd_clock_khz)-1;
+    }
+    outpw(REG_CLK_DIVCTL9, (inpw(REG_CLK_DIVCTL9) & ~0xff00) | ((div) << 8)); 	// SD clock divided by CLKDIV9[SD_N] [15:8]
+    outpw(REG_CLK_DIVCTL3, (inpw(REG_CLK_DIVCTL3) & ~0xff00) | ((div) << 8)); 	// SD clock divided by CLKDIV9[SD_N] [15:8]
+    MSG_DEBUG("clock: sd_clock_khz= %d   div = %d, REG_CLK_DIVCTL3=0x%x   REG_CLK_DIVCTL9=0x%x\n", sd_clock_khz, div, inpw(REG_CLK_DIVCTL3), inpw(REG_CLK_DIVCTL9));
 
     return;
 }
@@ -191,16 +193,19 @@ int SD_Init(FMI_SD_INFO_T *pSD)
     unsigned int CIDBuffer[4];
     unsigned int volatile u32CmdTimeOut;
 
-    // set the clock to 200KHz
-    SD_Set_clock(200);
-    //SD_Set_clock(1000); //1MHz
+    // set the clock to 1000KHz
+    SD_Set_clock(1000);
 
     // power ON 74 clock
     outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) | SD_CSR_CLK74_OE);
-    while(inpw(REG_FMI_EMMCCTL) & SD_CSR_CLK74_OE);
-    SD_SDCommand(pSD, 0, 0);        // reset all cards
-    for (i=0x100ul; i>0ul; i--) {
+    while(inpw(REG_FMI_EMMCCTL) & SD_CSR_CLK74_OE) {
+        if (pSD->bIsCardInsert == FALSE)
+            return SD_NO_SD_CARD;
     }
+
+    SD_SDCommand(pSD, 0, 0);        // reset all cards
+    for (i=SD_RSTCNT; i>0; i--);
+
     // initial SDHC
     _sd_uR7_CMD = 1;
     u32CmdTimeOut = 5000;
@@ -220,71 +225,58 @@ int SD_Init(FMI_SD_INFO_T *pSD)
             resp = inpw(REG_FMI_EMMCRESP0);
         }
 
-        if (resp & 0x00400000)
+        if ((resp & 0x00400000ul) == 0x00400000ul)
             pSD->uCardType = SD_TYPE_SD_HIGH;
         else
             pSD->uCardType = SD_TYPE_SD_LOW;
     } else {
         // SD 1.1
         SD_SDCommand(pSD, 0, 0);        // reset all cards
-        for (i=0x100; i>0; i--);
-        i = SD_SDCmdAndRsp(pSD, 55, 0x00, u32CmdTimeOut);
+        for (i=0x100ul; i>0ul; i--);
 
+        i = SD_SDCmdAndRsp(pSD, 55, 0x00, u32CmdTimeOut);
         if (i == 2) { // MMC memory
             SD_SDCommand(pSD, 0, 0);        // reset
-            for (i=0x100; i>0; i--);
+            for (i=0x100ul; i>0ul; i--);
 
             _sd_uR3_CMD = 1;
-            if (SD_SDCmdAndRsp(pSD, 1, 0x40ff8080, u32CmdTimeOut) != 2) { // eMMC memory
+            if (SD_SDCmdAndRsp(pSD, 1, 0x40ff8000ul, u32CmdTimeOut) != 2) { // eMMC memory
                 resp = inpw(REG_FMI_EMMCRESP0);
 
-                while (!(resp & 0x00800000)) { // check if card is ready
+                while ((resp & 0x00800000ul) != 0x00800000ul) { // check if card is ready
                     _sd_uR3_CMD = 1;
-                    SD_SDCmdAndRsp(pSD, 1, 0x40ff8080, u32CmdTimeOut);      // high voltage
+                    SD_SDCmdAndRsp(pSD, 1, 0x40ff8000ul, u32CmdTimeOut);      // high voltage
                     resp = inpw(REG_FMI_EMMCRESP0);
                 }
-                MSG_DEBUG("#245 card is ready SD_TYPE_EMMC\n");
-                pSD->uCardType = SD_TYPE_EMMC;
-            } else {
-                SD_SDCommand(pSD, 0, 0);        // reset
-                for (i=0x100; i>0; i--) {
-                    ;
-                }
-                i=SD_SDCmdAndRsp(pSD, 1, 0x80ff8000, u32CmdTimeOut);
-                MSG_DEBUG("i=SD_SDCmdAndRs i=%d\n",i);
-                if ( i!= 2) { // MMC memory
-                    resp = inpw(REG_FMI_EMMCRESP0);
-                    //MSG_DEBUG("check if card is ready\n");
-                    while (!(resp & 0x00800000)) { // check if card is ready
-                        _sd_uR3_CMD = 1;
-                        SD_SDCmdAndRsp(pSD, 1, 0x80ff8000, u32CmdTimeOut);      // high voltage
-                        resp = inpw(REG_FMI_EMMCRESP0);
-                    }
-                    MSG_DEBUG("#262 SD_TYPE_MMC\n");
+                if ((resp & 0x00400000ul) == 0x00400000ul)
+                    pSD->uCardType = SD_TYPE_EMMC;
+                else
                     pSD->uCardType = SD_TYPE_MMC;
-                } else {
-                    pSD->uCardType = SD_TYPE_UNKNOWN;
-                    return SD_ERR_DEVICE;
-                }
+            } else {
+                pSD->bIsCardInsert = FALSE;
+                pSD->uCardType = SD_TYPE_UNKNOWN;
+                return SD_ERR_DEVICE;
             }
         } else if (i == 0) { // SD Memory
-            int count=10;
+            unsigned int u32ReadyTimeOut = 0xfful;
             _sd_uR3_CMD = 1;
-            SD_SDCmdAndRsp(pSD, 41, 0x00ff8000, u32CmdTimeOut); // 3.0v-3.4v
+            SD_SDCmdAndRsp(pSD, 41, 0x00ff8000ul, u32CmdTimeOut); // 3.0v-3.4v
             resp = inpw(REG_FMI_EMMCRESP0);
-            while (!(resp & 0x00800000) && count>0) { // check if card is ready
+            while ((resp & 0x00800000ul) != 0x00800000ul) {
+                if(u32ReadyTimeOut-- == 0ul)
+                {
+                    pSD->bIsCardInsert = FALSE;
+                    pSD->uCardType = SD_TYPE_UNKNOWN;
+                    return SD_INIT_ERROR;
+                }
                 SD_SDCmdAndRsp(pSD, 55, 0x00,u32CmdTimeOut);
                 _sd_uR3_CMD = 1;
-                SD_SDCmdAndRsp(pSD, 41, 0x00ff8000, u32CmdTimeOut); // 3.0v-3.4v
+                SD_SDCmdAndRsp(pSD, 41, 0x00ff8000ul, u32CmdTimeOut); // 3.0v-3.4v
                 resp = inpw(REG_FMI_EMMCRESP0);
-                count--;
-            }
-            if(count<=0) {
-                pSD->uCardType = SD_TYPE_UNKNOWN;
-                return SD_INIT_ERROR;
             }
             pSD->uCardType = SD_TYPE_SD_LOW;
         } else {
+            pSD->bIsCardInsert = FALSE;
             pSD->uCardType = SD_TYPE_UNKNOWN;
             return SD_INIT_ERROR;
         }
@@ -296,7 +288,7 @@ int SD_Init(FMI_SD_INFO_T *pSD)
         if ((pSD->uCardType == SD_TYPE_MMC) || (pSD->uCardType == SD_TYPE_EMMC)) {
             if ((status = SD_SDCmdAndRsp(pSD, 3, 0x10000, 0)) != Successful)        // set RCA
                 return status;
-            pSD->uRCA = 0x10000;
+            pSD->uRCA = 0x10000ul;
         } else {
             if ((status = SD_SDCmdAndRsp(pSD, 3, 0x00, 0)) != Successful)       // get RCA
                 return status;
@@ -305,19 +297,24 @@ int SD_Init(FMI_SD_INFO_T *pSD)
         }
     }
 
+    SD_Set_clock(24000);
     if (pSD->uCardType == SD_TYPE_SD_HIGH)
         MSG_DEBUG("This is high capacity SD memory card\n");
     if (pSD->uCardType == SD_TYPE_SD_LOW)
         MSG_DEBUG("This is standard capacity SD memory card\n");
-    if (pSD->uCardType == SD_TYPE_MMC)
+    if (pSD->uCardType == SD_TYPE_MMC) {
+        SD_Set_clock(20000);
         MSG_DEBUG("This is MMC memory card\n");
-    if (pSD->uCardType == SD_TYPE_EMMC)
+    }
+    if (pSD->uCardType == SD_TYPE_EMMC) {
+        SD_Set_clock(20000);
         MSG_DEBUG("This is eMMC memory card\n");
+    }
 
-    SD_Set_clock(1000);
+    //SD_Set_clock(1000);
+
     return Successful;
 }
-
 
 int SD_SwitchToHighSpeed(FMI_SD_INFO_T *pSD)
 {
@@ -360,6 +357,7 @@ int SD_SwitchToHighSpeed(FMI_SD_INFO_T *pSD)
 int SD_SelectCardType(FMI_SD_INFO_T *pSD)
 {
     int volatile status=0;
+    uint32_t param;
 
     if ((status = SD_SDCmdAndRsp(pSD, 7, pSD->uRCA, 0)) != Successful)
         return status;
@@ -370,10 +368,12 @@ int SD_SelectCardType(FMI_SD_INFO_T *pSD)
     if (pSD->uCardType == SD_TYPE_SD_HIGH) {
         _sd_pSDHCBuffer = (UINT8 *)((UINT32)_sd_ucSDHCBuffer);
         outpw(REG_EMMC_DMASA, (UINT32)_sd_pSDHCBuffer);   // set DMA transfer starting address
-        outpw(REG_FMI_EMMCBLEN, 7);  // 64 bit
 
         if ((status = SD_SDCmdAndRsp(pSD, 55, pSD->uRCA, 0)) != Successful)
             return status;
+
+        outpw(REG_FMI_EMMCBLEN, 7);  // 64 bit
+
         if ((status = SD_SDCmdAndRspDataIn(pSD, 51, 0x00)) != Successful)
             return status;
 
@@ -381,64 +381,79 @@ int SD_SelectCardType(FMI_SD_INFO_T *pSD)
             status = SD_SwitchToHighSpeed(pSD);
             if (status == Successful) {
                 /* divider */
-                //SD_Set_clock(SDHC_FREQ);
+                SD_Set_clock(24000);
             }
         }
 
         if ((status = SD_SDCmdAndRsp(pSD, 55, pSD->uRCA, 0)) != Successful) {
-            printf("XXXX SD_SelectCardType  #391  status =0x%x\n", status);
+            printf("Error  SD_SelectCardType  #391  status =0x%x\n", status);
             return status;
         }
 
         if ((status = SD_SDCmdAndRsp(pSD, 6, 0x02, 0)) != Successful) { // set bus width
-            printf("XXXX SD_SelectCardType  #397  status =0x%x\n", status);
+            printf("Error  SD_SelectCardType  #397  status =0x%x\n", status);
             return status;
         }
 
         outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL)|SD_CSR_DBW_4BIT);
     } else if (pSD->uCardType == SD_TYPE_SD_LOW) {
-
         _sd_pSDHCBuffer = (UINT8 *)((UINT32)_sd_ucSDHCBuffer);
         outpw(REG_EMMC_DMASA, (UINT32)_sd_pSDHCBuffer);   // set DMA transfer starting address
         outpw(REG_FMI_EMMCBLEN, 7);  // 64 bit
 
         if ((status = SD_SDCmdAndRsp(pSD, 55, pSD->uRCA, 0)) != Successful) {
-            printf("XXXX SD_SelectCardType  #409  status =0x%x\n", status);
+            printf("Error  SD_SelectCardType  #409  status =0x%x\n", status);
             return status;
         }
+
         if ((status = SD_SDCmdAndRspDataIn(pSD, 51, 0x00)) != Successful) {
-            printf("XXXXSD_SelectCardType  #413  status =0x%x\n", status);
+            printf("Error SD_SelectCardType  #413  status =0x%x\n", status);
             return status;
         }
 
         // set data bus width. ACMD6 for SD card, SDCR_DBW for host.
         if ((status = SD_SDCmdAndRsp(pSD, 55, pSD->uRCA, 0)) != Successful) {
-            printf("XXXX SD_SelectCardType  #419  status =0x%x\n", status);
+            printf("Error  SD_SelectCardType  #419  status =0x%x\n", status);
             return status;
         }
 
         if ((status = SD_SDCmdAndRsp(pSD, 6, 0x02, 0)) != Successful) { // set bus width
-            printf("XXXX SD_SelectCardType  #424  status =0x%x\n", status);
+            printf("Error  SD_SelectCardType  #424  status =0x%x\n", status);
             return status;
         }
 
-        //outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL)|SD_CSR_DBW_4BIT);
-        outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) & ~SD_CSR_DBW_4BIT);
+        outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL)|SD_CSR_DBW_4BIT); // SD can't format issue.
+
     } else if ((pSD->uCardType == SD_TYPE_MMC) ||(pSD->uCardType == SD_TYPE_EMMC)) {
-        outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) & ~SD_CSR_DBW_4BIT);
+
+        if(pSD->uCardType == SD_TYPE_MMC) {
+            outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) & ~SD_CSR_DBW_4BIT);
+        }
+
+        /*--- sent CMD6 to MMC card to set bus width to 4 bits mode */
+        /* set CMD6 argument Access field to 3, Index to 183, Value to 1 (4-bit mode) */
+        param = (3ul << 24) | (183ul << 16) | (1ul << 8);
+        if ((status = SD_SDCmdAndRsp(pSD, 6ul, param, 0ul)) != Successful) {
+            return status;
+        }
+        SD_CheckRB();
+
+        outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL)|SD_CSR_DBW_4BIT);
     }
 
     if ((status = SD_SDCmdAndRsp(pSD, 16, SD_BLOCK_SIZE, 0)) != Successful) { // set block length
-        printf("XXXXX SD_SelectCardType  #435  status =0x%x\n", status);
+        printf("Error SD_SelectCardType  #435  status =0x%x\n", status);
         return status;
     }
 
     outpw(REG_FMI_EMMCBLEN, SD_BLOCK_SIZE - 1);           // set the block size
     SD_SDCommand(pSD, 7, 0);
 
+    outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL)|SD_CSR_CLK8_OE);
+    while(inpw(REG_FMI_EMMCCTL) & SD_CSR_CLK8_OE);
     outpw(REG_FMI_EMMCINTEN, inpw(REG_FMI_EMMCINTEN)|SD_IER_BLKD_IE);
     pSD->bIsCardInsert = 1;
-    MSG_DEBUG("SD_SelectCardType  Done VVVV  REG_FMI_EMMCCTL = 0x%x\n", inpw(REG_FMI_EMMCCTL));
+    MSG_DEBUG("SD_SelectCardType  Done. REG_FMI_EMMCCTL = 0x%x\n", inpw(REG_FMI_EMMCCTL));
     return Successful;
 }
 
@@ -478,20 +493,22 @@ int SD_Read_in_blksize(FMI_SD_INFO_T *pSD, UINT32 uSector, UINT32 uBufcnt, UINT3
             outpw(REG_FMI_EMMCCTL, reg | SD_CSR_DI_EN);
 
         while(1) {
-            //if (inpw(REG_FMI_EMMCINTSTS) & SD_ISR_BLKD_IF) {
             if ((inpw(REG_FMI_EMMCINTSTS) & SD_ISR_BLKD_IF) && (!(inpw(REG_FMI_EMMCCTL) & SD_CSR_DI_EN))) {
                 outpw(REG_FMI_EMMCINTSTS, SD_ISR_BLKD_IF);
                 break;
             }
+
+            if (pSD->bIsCardInsert == FALSE)
+                return SD_NO_SD_CARD;
         }
 
         if (!(inpw(REG_FMI_EMMCINTSTS) & SD_ISR_CRC7_OK)) {     // check CRC7
-            printf("XXXXX sdioSD_Read_in_blksize(): response error!\n");
+            printf("Error sdioSD_Read_in_blksize(): response error!\n");
             return SD_CRC7_ERROR;
         }
 
         if (!(inpw(REG_FMI_EMMCINTSTS) & SD_ISR_CRC16_OK)) {    // check CRC16
-            printf("XXXXX sdioSD_Read_in_blksize() :read data error!\n");
+            printf("Error sdioSD_Read_in_blksize() :read data error!\n");
             return SD_CRC16_ERROR;
         }
     }
@@ -513,6 +530,8 @@ int SD_Read_in_blksize(FMI_SD_INFO_T *pSD, UINT32 uSector, UINT32 uBufcnt, UINT3
                 outpw(REG_FMI_EMMCINTSTS, SD_ISR_BLKD_IF);
                 break;
             }
+            if (pSD->bIsCardInsert == FALSE)
+                return SD_NO_SD_CARD;
         }
 
         if (!(inpw(REG_FMI_EMMCINTSTS) & SD_ISR_CRC7_OK)) {     // check CRC7
@@ -530,8 +549,8 @@ int SD_Read_in_blksize(FMI_SD_INFO_T *pSD, UINT32 uSector, UINT32 uBufcnt, UINT3
         //printf("stop command fail !!\n");
         return SD_CRC7_ERROR;
     }
-    SD_CheckRB();
 
+    SD_CheckRB();
     SD_SDCommand(pSD, 7, 0);
 
     return Successful;
@@ -556,12 +575,12 @@ int SD_Write_in(FMI_SD_INFO_T *pSD, UINT32 uSector, UINT32 uBufcnt, UINT32 uSAdd
 
     //--- check input parameters
     if (uBufcnt == 0) {
-        printf("#560  XXXXX SD_SELECT_ERROR\n");
+        printf("#560  Error  SD_SELECT_ERROR\n");
         return SD_SELECT_ERROR;
     }
 
     if ((status = SD_SDCmdAndRsp(pSD, 7, pSD->uRCA, 0)) != Successful) {
-        printf("#565  XXXXX status =0x%x\n", status);
+        printf("#565  Error  status =0x%x\n", status);
         return status;
     }
     MSG_DEBUG("#568\n");
@@ -591,11 +610,13 @@ int SD_Write_in(FMI_SD_INFO_T *pSD, UINT32 uSector, UINT32 uBufcnt, UINT32 uSAdd
                 outpw(REG_FMI_EMMCINTSTS, SD_ISR_BLKD_IF);
                 break;
             }
+            if (pSD->bIsCardInsert == FALSE)
+                return SD_NO_SD_CARD;
         }
 
         if ((inpw(REG_FMI_EMMCINTSTS) & SD_ISR_CRC_IF) != 0) {      // check CRC
             outpw(REG_FMI_EMMCINTSTS, SD_ISR_CRC_IF);
-            printf("#599 XXXXX SD_CRC_ERROR = 0x%x\n", SD_CRC_ERROR);
+            printf("#599 Error  SD_CRC_ERROR = 0x%x\n", SD_CRC_ERROR);
             return SD_CRC_ERROR;
         }
     }
@@ -614,19 +635,20 @@ int SD_Write_in(FMI_SD_INFO_T *pSD, UINT32 uSector, UINT32 uBufcnt, UINT32 uSAdd
                 outpw(REG_FMI_EMMCINTSTS, SD_ISR_BLKD_IF);
                 break;
             }
+            if (pSD->bIsCardInsert == FALSE)
+                return SD_NO_SD_CARD;
         }
 
         if ((inpw(REG_FMI_EMMCINTSTS) & SD_ISR_CRC_IF) != 0) {      // check CRC
-            MSG_DEBUG("inpw(REG_FMI_EMMCINTSTS) = 0x%x\n", inpw(REG_FMI_EMMCINTSTS));
+            printf("#623  Error  SD_CRC_ERROR = 0x%x\n", inpw(REG_FMI_EMMCINTSTS));
             outpw(REG_FMI_EMMCINTSTS, SD_ISR_CRC_IF);
-            printf("#623  XXXXX SD_CRC_ERROR = 0x%x\n", SD_CRC_ERROR);
             return SD_CRC_ERROR;
         }
     }
     outpw(REG_FMI_EMMCINTSTS, SD_ISR_CRC_IF);
     MSG_DEBUG("#628\n");
     if (SD_SDCmdAndRsp(pSD, 12, 0, 0)) {    // stop command
-        printf("#630   XXXXX SD_CRC7_ERROR\n");
+        printf("#630   Error  SD_CRC7_ERROR\n");
         return SD_CRC7_ERROR;
     }
     SD_CheckRB();

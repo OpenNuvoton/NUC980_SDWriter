@@ -51,7 +51,7 @@
 
 #include <stdint.h>
 
-/** @addtogroup NUC980_PERIPHERAL_MEM_MAP Peripheral Memory Base
+/** @addtogroup NUC980_PERIPHERAL_MEM_MAP NUC980 Peripheral Memory Base
   Memory Mapped Structure for NUC980 Peripheral
   @{
  */
@@ -70,6 +70,7 @@
 #define    OHCI_BA   0xB0017000
 #define    SDH_BA    0xB0018000
 #define    FMI_BA    0xB0019000
+#define    SDSEL_BA  (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300) ? (0xB0019000):(0xB0018000)) /*  eMMC0 boot or SD1 boot */ 
 #define    CRPT_BA   0xB001C000
 #define    I2S_BA    0xB0020000
 #define    EMC1_BA   0xB0022000
@@ -88,7 +89,7 @@
 
 #define    WDT_BA    0xB0040000 /* Watch Dog Timer */
 #define    WWDT_BA   0xB0040100 /* Windows Watch Dog Timer */
-#define    RTC_BA    0xB0041000
+#define    RTC_BA    0xB0041000 
 #define    AIC_BA    0xB0042000 /* Interrupt Controller */
 #define    ADC_BA    0xB0043000
 #define    ETMR0_BA  0xB0050000 /* ETimer0 */
@@ -128,7 +129,7 @@
 /******************************************************************************/
 /*                Device Specific Peripheral registers structures             */
 /******************************************************************************/
-/** @addtogroup REGISTER Control Register
+/** @addtogroup NUC980_Peripherals NUC980 Control Register
   NUC980 Device Specific Peripheral registers structures
   @{
 */
@@ -549,14 +550,25 @@
 #define     REG_FMI_INTSTS      (FMI_BA+0x808)   /*!< Global Interrupt Status Register */
 
 /* eMMC Registers */
-#define     REG_FMI_EMMCCTL     (FMI_BA+0x820)   /*!< eMMC control and status register */
-#define     REG_FMI_EMMCCMD     (FMI_BA+0x824)   /*!< eMMC command argument register */
-#define     REG_FMI_EMMCINTEN   (FMI_BA+0x828)   /*!< eMMC interrupt enable register */
-#define     REG_FMI_EMMCINTSTS  (FMI_BA+0x82C)   /*!< eMMC interrupt status register */
-#define     REG_FMI_EMMCRESP0   (FMI_BA+0x830)   /*!< eMMC receive response token register 0 */
-#define     REG_FMI_EMMCRESP1   (FMI_BA+0x834)   /*!< eMMC receive response token register 1 */
-#define     REG_FMI_EMMCBLEN    (FMI_BA+0x838)   /*!< eMMC block length register */
-#define     REG_FMI_EMMCTOUT    (FMI_BA+0x83C)   /*!< eMMC block length register */
+#define     REG_EMMC_BUFFER      (SDSEL_BA+0x000)   /*!< FMI Embedded Buffer Word */
+#define     REG_EMMC_DMACTL      (SDSEL_BA+0x400)   /*!< FMI DMA Control Register */
+#define     REG_EMMC_DMASA       (SDSEL_BA+0x408)   /*!< FMI DMA Transfer Starting Address Register */
+#define     REG_EMMC_DMABCNT     (SDSEL_BA+0x40C)   /*!< FMI DMA Transfer Byte Count Register */
+#define     REG_EMMC_DMAINTEN    (SDSEL_BA+0x410)   /*!< FMI DMA Interrupt Enable Register */
+#define     REG_EMMC_DMAINTSTS   (SDSEL_BA+0x414)   /*!< FMI DMA Interrupt Status Register */
+
+#define     REG_EMMC_CTL         (SDSEL_BA+0x800)   /*!< Global Control and Status Register */
+#define     REG_EMMC_INTEN       (SDSEL_BA+0x804)   /*!< Global Interrupt Control Register */
+#define     REG_EMMC_INTSTS      (SDSEL_BA+0x808)   /*!< Global Interrupt Status Register */
+
+#define     REG_FMI_EMMCCTL     (SDSEL_BA+0x820)   /*!< eMMC control and status register */
+#define     REG_FMI_EMMCCMD     (SDSEL_BA+0x824)   /*!< eMMC command argument register */
+#define     REG_FMI_EMMCINTEN   (SDSEL_BA+0x828)   /*!< eMMC interrupt enable register */
+#define     REG_FMI_EMMCINTSTS  (SDSEL_BA+0x82C)   /*!< eMMC interrupt status register */
+#define     REG_FMI_EMMCRESP0   (SDSEL_BA+0x830)   /*!< eMMC receive response token register 0 */
+#define     REG_FMI_EMMCRESP1   (SDSEL_BA+0x834)   /*!< eMMC receive response token register 1 */
+#define     REG_FMI_EMMCBLEN    (SDSEL_BA+0x838)   /*!< eMMC block length register */
+#define     REG_FMI_EMMCTOUT    (SDSEL_BA+0x83C)   /*!< eMMC block length register */
 
 /* NAND-type Flash Registers */
 #define     REG_NANDCTL         (FMI_BA+0x8A0)   /*!< NAND Flash Control and Status Register */
@@ -1317,7 +1329,7 @@
 
 /*------------------ Capture Sensor Interface Controller ---------------------*/
 /**
-    @addtogroup CAP Capture Engine(CAP)
+    @addtogroup CAP Capture Sensor Interface Controller(CAP)
     Memory Mapped Structure for CAP Controller
 @{ */
 
@@ -1462,10 +1474,10 @@
 /**@}*/ /* end of CAN register group */
 
 
-/*@}*/ /* end of group REGISTER */
+/*@}*/ /* end of group NUC980_Peripherals */
 
 
-/** @addtogroup IO_ROUTINE  I/O Routines
+/** @addtogroup NUC980_IO_ROUTINE NUC980 I/O Routines
   The Declaration of NUC980 I/O Routines
   @{
  */
@@ -1596,12 +1608,12 @@ typedef volatile unsigned long  vu32;       ///< Define 32-bit unsigned volatile
 #define inp8(port)            (*((volatile unsigned char *)(port)))
 
 
-/*@}*/ /* end of group IO_ROUTINE */
+/*@}*/ /* end of group NUC980_IO_ROUTINE */
 
 /******************************************************************************/
 /*                Legacy Constants                                            */
 /******************************************************************************/
-/** @addtogroup Legacy_Constants Legacy Constants
+/** @addtogroup NUC980_legacy_Constants NUC980 Legacy Constants
   NUC980 Legacy Constants
   @{
 */
@@ -1716,14 +1728,15 @@ typedef unsigned int      REG32;    ///< Define 32-bit register data type
 #define GET_BYTE2(u32Param)    ((u32Param & BYTE2_Msk) >> 16)  /*!< Extract Byte 2 (Bit 16~23) from parameter u32Param */
 #define GET_BYTE3(u32Param)    ((u32Param & BYTE3_Msk) >> 24)  /*!< Extract Byte 3 (Bit 24~31) from parameter u32Param */
 
+
 #ifdef __cplusplus
-#define   __I     volatile             /*!< Defines 'read only' permissions                 */
+  #define   __I     volatile             /*!< Defines 'read only' permissions                 */
 #else
-#define   __I     volatile const       /*!< Defines 'read only' permissions                 */
+  #define   __I     volatile const       /*!< Defines 'read only' permissions                 */
 #endif
 #define     __O     volatile             /*!< Defines 'write only' permissions                */
 #define     __IO    volatile             /*!< Defines 'read / write' permissions              */
 
 #endif /* __NUC980_H__ */
 
-/*@}*/ /* end of group Legacy_Constants */
+/*@}*/ /* end of group NUC980_legacy_Constants */
