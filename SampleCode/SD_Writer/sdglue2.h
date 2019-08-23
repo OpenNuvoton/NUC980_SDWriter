@@ -8,7 +8,12 @@
 #define SD_MUL 8
 #define MMC_INFO_SECTOR 1
 
-#define    pSD0     (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300) ? (_pSD0):(_pSD1))
+#define MBR_BUFFER       0x600000
+#define DOWNLOAD_BASE    0x500000 //0x10000
+#define NON_CACHE        0x80000000
+
+//#define    pSD0     (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300) ? (_pSD0):(_pSD1))
+#define    pSD0     (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300) ? (_pSD1):(_pSD0))
 
 INT  fmiInitSDDevice(void);
 INT  fmiSD_Read(UINT32 uSector, UINT32 uBufcnt, UINT32 uDAddr);

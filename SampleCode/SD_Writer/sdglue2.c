@@ -20,9 +20,9 @@
 #include "sdglue2.h"
 //#include "usbd.h"
 
+void SendAck(UINT32 status);
+
 #define MSG_DEBUG        printf
-#define DOWNLOAD_BASE    0x10000
-#define NON_CACHE        0x80000000
 
 DISK_DATA_T SD_DiskInfo;
 FMI_SD_INFO_T *_pSD0 = NULL;
@@ -35,8 +35,9 @@ INT  fmiInitSDDevice(void)
 
     FMI_SD_INFO_T *pSD_temp = NULL;
 
-    /* select eMMC/SD function pins */
-    if (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300)) {
+    /* Boot from SD port 0 (Port C) => Write to eMMC port 1 (Port F) */
+    /* Boot from SD port 1 (Port F) => Write to eMMC port 0 (Port C) */
+    if (((inpw(REG_SYS_PWRON) & 0x00000300) != 0x300)) {
         /* Set GPC for eMMC0/SD0 */
         outpw(REG_SYS_GPC_MFPL, 0x66600000);
         outpw(REG_SYS_GPC_MFPH, 0x00060666);
@@ -45,7 +46,7 @@ INT  fmiInitSDDevice(void)
         outpw(REG_SYS_GPF_MFPL, 0x02222222);
     }
 
-    // enable SD
+    // enable eMMC
     outpw(REG_EMMC_CTL, FMI_CSR_SD_EN);
     outpw(REG_FMI_EMMCCTL, inpw(REG_FMI_EMMCCTL) | SD_CSR_SWRST);// SD software reset
     while(inpw(REG_FMI_EMMCCTL) & SD_CSR_SWRST);
@@ -57,7 +58,9 @@ INT  fmiInitSDDevice(void)
         return -1;
     memset((char *)pSD_temp, 0, sizeof(FMI_SD_INFO_T)+4);
 
-    if (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300)) {
+    /* Boot from SD port 0 (Port C) => Write to eMMC port 1 (Port F) */
+    /* Boot from SD port 1 (Port F) => Write to eMMC port 0 (Port C) */
+    if (((inpw(REG_SYS_PWRON) & 0x00000300) != 0x300)) {
         pSD0_offset = (UINT32)pSD_temp % 4;
         _pSD0 = (FMI_SD_INFO_T *)((UINT32)pSD_temp + pSD0_offset);
         _pSD0->bIsCardInsert = TRUE;

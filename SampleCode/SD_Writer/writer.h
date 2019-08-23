@@ -70,6 +70,15 @@ typedef struct USERDEF_SPI_Info {
     unsigned int QuadCmdDefined;
 } USERDEF_SPI_Info;
 
+typedef struct EMMC_FORMAT_Info {
+    unsigned int ReservedSpace;
+    unsigned int PartitionNum;
+    unsigned int Partition1Size;  //unit of MB
+    unsigned int Partition2Size;  //unit of MB
+    unsigned int Partition3Size;  //unit of MB
+    unsigned int Partition4Size;  //unit of MB	
+    unsigned int user_choice;
+} EMMC_FORMAT_Info;
 
 //----- Boot Code Optional Setting
 typedef struct IBR_boot_optional_pairs_struct_t {
@@ -94,13 +103,10 @@ typedef struct INI_Info {
     INI_USER_IMAGE_T Env;
     INI_USER_IMAGE_T UserImage[10];
     USERDEF_SPI_Info UserDef_SPI;
-    unsigned int Loader_size;
+    EMMC_FORMAT_Info EMMC_Format;
+  	unsigned int Loader_size;
     int ChipErase;
 } INI_INFO_T;
-#define SPIFLASH_WINBOND		0xEF
-#define SPIFLASH_SST			0xBF
-#define SPIFLASH_MXIC			0xC2
-#define SPIFLASH_GIGADEVICE		0xC8
 
 /* extern parameters */
 extern unsigned int infoBuf;

@@ -70,7 +70,10 @@
 #define    OHCI_BA   0xB0017000
 #define    SDH_BA    0xB0018000
 #define    FMI_BA    0xB0019000
-#define    SDSEL_BA  (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300) ? (0xB0019000):(0xB0018000)) /*  eMMC0 boot or SD1 boot */ 
+/* This definition selects target to write */
+/* Boot from SD port 0 (Port C) => Write to eMMC port 1 (Port F) */
+/* Boot from SD port 1 (Port F) => Write to eMMC port 0 (Port C) */
+#define    SDSEL_BA  (((inpw(REG_SYS_PWRON) & 0x00000300) == 0x300) ? (0xB0018000):(0xB0019000))
 #define    CRPT_BA   0xB001C000
 #define    I2S_BA    0xB0020000
 #define    EMC1_BA   0xB0022000

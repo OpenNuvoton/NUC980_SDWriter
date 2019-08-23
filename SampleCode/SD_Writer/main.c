@@ -17,6 +17,7 @@
 #include "writer.h"
 #include "sdglue2.h"
 #include "spinandflash.h"
+#include "filesystem.h"
 
 extern int spiInit();
 int spiEraseAll(void);
@@ -116,6 +117,11 @@ static const unsigned long crc32_table[256] = {
 
 INFO_T info;
 extern INI_INFO_T Ini_Writer;
+
+/* eMMC */
+extern FW_MMC_IMAGE_T mmcImage;
+extern FW_MMC_IMAGE_T *pmmcImage;
+extern void GetMMCImage(void);
 
 //CWWeng 2018.11.9 : It's a null function, in NuWriter it's for USB send status
 //for easy to maintain the firmware between SD writer with NuWriter, add a null one here
@@ -1750,6 +1756,68 @@ _retry_3:
 
         printf("eMMCBlockSize=0x%08x(%d) \n",eMMCBlockSize, eMMCBlockSize);
 
+        if (Ini_Writer.EMMC_Format.user_choice == 1) {
+            PMBR pmbr;
+            unsigned int *ptr;
+            UCHAR _fmi_ucBuffer[512];
+            ptr = (unsigned int *)((UINT32)_fmi_ucBuffer | 0x80000000);
+
+            printf("Format eMMC !!!\n");
+            printf("Reserved space: [%d] sector\n",Ini_Writer.EMMC_Format.ReservedSpace);
+            printf("Partition Number: [%d]\n",Ini_Writer.EMMC_Format.PartitionNum);
+            printf("Partition 1 size: [%d] MB\n",Ini_Writer.EMMC_Format.Partition1Size);
+            printf("Partition 2 size: [%d] MB\n",Ini_Writer.EMMC_Format.Partition2Size);
+            printf("Partition 3 size: [%d] MB\n",Ini_Writer.EMMC_Format.Partition3Size);
+            printf("Partition 4 size: [%d] MB\n",Ini_Writer.EMMC_Format.Partition4Size);
+
+            memset((char *)&mmcImage, 0, sizeof(FW_MMC_IMAGE_T));
+            pmmcImage = (FW_MMC_IMAGE_T*)&mmcImage;
+            pmmcImage->ReserveSize = Ini_Writer.EMMC_Format.ReservedSpace;
+            pmmcImage->PartitionNum = Ini_Writer.EMMC_Format.PartitionNum;
+            pmmcImage->Partition1Size = Ini_Writer.EMMC_Format.Partition1Size;
+            pmmcImage->Partition2Size = Ini_Writer.EMMC_Format.Partition2Size;
+            pmmcImage->Partition3Size = Ini_Writer.EMMC_Format.Partition3Size;
+            pmmcImage->Partition4Size = Ini_Writer.EMMC_Format.Partition4Size;
+
+            if(eMMCBlockSize>0) {
+                pmbr=create_mbr(eMMCBlockSize, pmmcImage);
+                switch(pmmcImage->PartitionNum) {
+                case 1:
+                    ETimer1_cnt = 0;
+                    FormatFat32(pmbr,0);
+                    break;
+                case 2: {
+                    ETimer1_cnt = 0;
+                    FormatFat32(pmbr,0);
+                    ETimer1_cnt = 0;
+                    FormatFat32(pmbr,1);
+                }
+                break;
+                case 3: {
+                    ETimer1_cnt = 0;
+                    FormatFat32(pmbr,0);
+                    ETimer1_cnt = 0;
+                    FormatFat32(pmbr,1);
+                    ETimer1_cnt = 0;
+                    FormatFat32(pmbr,2);
+                }
+                break;
+                case 4: {
+                    FormatFat32(pmbr,0);
+                    FormatFat32(pmbr,1);
+                    FormatFat32(pmbr,2);
+                    FormatFat32(pmbr,3);
+                }
+                break;
+                }
+
+                fmiSD_Read(MMC_INFO_SECTOR,1,(UINT32)ptr);
+                *(ptr+125)=0x11223344;
+                *(ptr+126)=pmmcImage->ReserveSize;
+                *(ptr+127)=0x44332211;
+                fmiSD_Write(MMC_INFO_SECTOR,1,(UINT32)ptr);
+            }
+        }
         if (Ini_Writer.Loader.user_choice == 1) {
             unsigned int header_size;
             int offset = 0x400;

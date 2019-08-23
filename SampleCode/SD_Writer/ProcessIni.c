@@ -457,6 +457,24 @@ NextMark2:
                     break;
                 }
             } while (1);
+        } else if (strstr(Cmd,"[Format]")) {
+            do {
+                status = readLine(&File_Obj, Cmd);
+                if (status < 0)
+                    break;          /* use default value since error code from FAT. Coulde be end of file. */
+                else if (Cmd[0] == 0)
+                    continue;       /* skip empty line */
+                else if ((Cmd[0] == '/') && (Cmd[1] == '/'))
+                    continue;       /* skip comment line */
+                else if (Cmd[0] == '[')
+                    goto NextMark2; /* use default value since no assign value before next keyword */
+                else {
+                    if (sscanf (Cmd,"ReservedSpace=%d, PartitionNum=%d, PartitionS1Size=%d, PartitionS2Size=%d, PartitionS3Size=%d, PartitionS4Size=%d",&(Ini_Writer.EMMC_Format.ReservedSpace), &(Ini_Writer.EMMC_Format.PartitionNum), &(Ini_Writer.EMMC_Format.Partition1Size), &(Ini_Writer.EMMC_Format.Partition2Size), &(Ini_Writer.EMMC_Format.Partition3Size), &(Ini_Writer.EMMC_Format.Partition4Size)) == 6)
+                        Ini_Writer.EMMC_Format.user_choice = 1;
+
+                    break;
+                }
+            } while (1);
         } else if (strcmp(Cmd, "[Chip Erase]") == 0) {
             do {
                 status = readLine(&File_Obj, Cmd);
