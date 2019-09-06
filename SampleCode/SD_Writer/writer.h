@@ -58,6 +58,13 @@ typedef struct USER_IMAGE_Info {
     int						user_choice;
 } INI_USER_IMAGE_T;
 
+typedef struct ERASE_Info {
+    unsigned int EraseAll;
+    unsigned int EraseStart;
+    unsigned int EraseLength;
+    unsigned int user_choice;
+} ERASE_Info;
+
 typedef struct USERDEF_SPI_Info {
     unsigned int PageSize;
     unsigned int SpareArea;
@@ -104,8 +111,8 @@ typedef struct INI_Info {
     INI_USER_IMAGE_T UserImage[10];
     USERDEF_SPI_Info UserDef_SPI;
     EMMC_FORMAT_Info EMMC_Format;
-  	unsigned int Loader_size;
-    int ChipErase;
+    unsigned int Loader_size;
+    ERASE_Info Erase;
 } INI_INFO_T;
 
 /* extern parameters */

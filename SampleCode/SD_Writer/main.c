@@ -508,7 +508,7 @@ void ETMR1_IRQHandler(void)
     //printf("ETimer1_cnt = %d\n",ETimer1_cnt);
     // clear timer interrupt flag
     ETIMER_ClearIntFlag(1);
-    if (ETimer1_cnt >= 10) {
+    if (ETimer1_cnt >= 120) {
         printf("Time-out\n");
         ETIMER_Stop(1);
         while(1) {
@@ -980,15 +980,23 @@ int32_t main(void)
     if (Ini_Writer.Type == TYPE_SPI_NOR) {
         printf("Write Type is SPI NOR flash\n");
 
-        if (0) { //Chip erase
-            printf("Chip erase...\n");
-            spiInit();
-            spiEraseAll();
-            spiCheckBusy();
-            printf("Chip erase... done\n");
+        spiInit();
+
+        if (Ini_Writer.Erase.user_choice == 1) {
+            WDT_RSTCNT;
+            printf("EraseAll = %d\n",Ini_Writer.Erase.EraseAll);
+            if (Ini_Writer.Erase.EraseAll == 1) { /* Erase whole chip */
+                printf("Please wait for chip erase.....\n");
+                spiEraseAll();
+                spiCheckBusy();
+                printf("Chip erase... done\n");
+            } else { /* Erase partial */
+                printf("EraseStart = %d, EraseLength = %d\n",Ini_Writer.Erase.EraseStart,Ini_Writer.Erase.EraseLength);
+                spiEraseSector(Ini_Writer.Erase.EraseStart * SPI_BLOCK_SIZE, Ini_Writer.Erase.EraseLength);
+                printf("Erase... done\n");
+            }
         }
 
-        spiInit();
         if (Ini_Writer.Loader.user_choice == 1) {
             int i, offset=0, blockCount, len;
             unsigned int header_size;
@@ -1038,6 +1046,7 @@ int32_t main(void)
                     if(Enable4ByteFlag)
                         printf("Enable4ByteFlag %d:  offset=0x%08x(%d)\n", Enable4ByteFlag, offset, offset);
 
+                    memset((void*)Buff, 0xFF, SPI_BLOCK_SIZE);
                     res = f_read(&file2, Buff, SPI_BLOCK_SIZE, &s2);
                     if (res || s2 == 0) {
                         printf("res = %d,read size = %d\n",res,s2);
@@ -1071,6 +1080,7 @@ int32_t main(void)
                         printf("Enable4ByteFlag %d:  offset=0x%08x(%d)\n", Enable4ByteFlag, offset, offset);
 
                     len = len - blockCount*SPI_BLOCK_SIZE;
+                    memset((void*)Buff, 0xFF, SPI_BLOCK_SIZE);
                     res = f_read(&file2, Buff, len, &s2);
                     if (res || s2 == 0) {
                         printf("res = %d,read size = %d\n",res,s2);
@@ -1123,6 +1133,7 @@ int32_t main(void)
                         if(Enable4ByteFlag)
                             printf("Enable4ByteFlag %d:  offset=0x%08x(%d)\n", Enable4ByteFlag, offset, offset);
 
+                        memset((void*)Buff, 0xFF, SPI_BLOCK_SIZE);
                         res = f_read(&file2, Buff, SPI_BLOCK_SIZE, &s2);
                         if (res || s2 == 0) {
                             printf("res = %d,read size = %d\n",res,s2);
@@ -1158,6 +1169,7 @@ int32_t main(void)
                             printf("Enable4ByteFlag %d:  offset=0x%08x(%d)\n", Enable4ByteFlag, offset, offset);
 
                         len = len - blockCount*SPI_BLOCK_SIZE;
+                        memset((void*)Buff, 0xFF, SPI_BLOCK_SIZE);
                         res = f_read(&file2, Buff, len, &s2);
                         if (res || s2 == 0) {
                             printf("res = %d,read size = %d\n",res,s2);
@@ -1222,6 +1234,47 @@ int32_t main(void)
         printf("Write Type is SPI NAND\n");
         /* Initial SPI NAND */
         spiNANDInit();
+
+        if (Ini_Writer.Erase.user_choice == 1) {
+            uint8_t volatile SR;
+            uint32_t volatile blockNum, PA_Num;
+            printf("EraseAll = %d\n",Ini_Writer.Erase.EraseAll);
+            if (Ini_Writer.Erase.EraseAll == 1) { /* Erase whole chip */
+                for (blockNum=0; blockNum < pSN->SPINand_BlockPerFlash; blockNum++) {
+                    PA_Num = blockNum*pSN->SPINand_PagePerBlock;
+                    if(spiNAND_bad_block_check(PA_Num) == 1) {
+                        printf("bad_block:%d\n", blockNum);
+                        continue;
+                    } else {
+                        spiNAND_BlockErase( (PA_Num>>8)&0xFF, PA_Num&0xFF);
+                        SR = spiNAND_Check_Program_Erase_Fail_Flag();
+                        if (SR != 0) {
+                            spiNANDMarkBadBlock(PA_Num);
+                            printf("Error erase status! bad_block:%d\n", blockNum);
+                        } else {
+                            printf("BlockErase %d Done\n", blockNum);
+                        }
+                    }
+                }
+            } else { /* Erase partial */
+                printf("EraseStart = %d, EraseLength = %d\n",Ini_Writer.Erase.EraseStart,Ini_Writer.Erase.EraseLength);
+                for(blockNum=Ini_Writer.Erase.EraseStart; blockNum < (Ini_Writer.Erase.EraseStart+Ini_Writer.Erase.EraseLength); blockNum++) {
+                    PA_Num = blockNum*pSN->SPINand_PagePerBlock;
+                    if (spiNAND_bad_block_check(PA_Num) == 1) {
+                        printf("bad_block:%d\n", blockNum);
+                        continue;
+                    }
+                    spiNAND_BlockErase( (PA_Num>>8)&0xFF, PA_Num&0xFF);
+                    SR = spiNAND_Check_Program_Erase_Fail_Flag();
+                    if (SR != 0) {
+                        printf("Error erase status! bad_block:%d\n", blockNum);
+                        spiNANDMarkBadBlock(PA_Num);
+                    } else {
+                        printf("BlockErase %d Done\n", blockNum);
+                    }
+                }
+            }
+        }
 
         if (Ini_Writer.Loader.user_choice == 1) {
             unsigned int i,write_len,blkindx,end_blk,page,page_count;
@@ -1344,6 +1397,7 @@ _retry_spinand_1:
                 // erase block
                 for(blkindx = startblk; blkindx <= endblk; blkindx++) {
                     len = MIN(((pSN->SPINand_PagePerBlock)*(pSN->SPINand_PageSize)), Ini_Writer.UserImage[ImgNo].DataSize);
+                    memset((void*)Buff, 0xFF, BUFF_SIZE);
                     res = f_read(&file2, Buff, len, &s2);
                     //printf("len = %d, s2 = %d\n",len,s2);
                     if (res) {
@@ -1509,8 +1563,22 @@ _retry_spinand_3:
         chip_size = (pSM->uBlockPerFlash)*(pSM->uPagePerBlock)*(pSM->uPageSize);
         printf("Chip size = 0x%x\n",chip_size);
 
-        //printf("Chip erase...\n");
-        //fmiSM_ChipErase(0);
+        if (Ini_Writer.Erase.user_choice == 1) {
+            int bad_block;
+            printf("EraseAll = %d\n",Ini_Writer.Erase.EraseAll);
+            if (Ini_Writer.Erase.EraseAll == 1) { /* Erase whole chip */
+                bad_block = fmiSM_ChipErase(0);
+                if (bad_block < 0) {
+                    printf("ERROR: %d bad block\n", bad_block); // storage error
+                } else {
+                    printf("total %d bad block\n", bad_block);
+                }
+            } else { /* Erase partial */
+                printf("EraseStart = %d, EraseLength = %d\n",Ini_Writer.Erase.EraseStart,Ini_Writer.Erase.EraseLength);
+                bad_block = fmiSM_Erase(0,Ini_Writer.Erase.EraseStart,Ini_Writer.Erase.EraseLength);
+                printf("total %d bad block\n", bad_block);
+            }
+        }
 
         if (Ini_Writer.Loader.user_choice == 1) {
             unsigned int header_size;
@@ -1616,6 +1684,7 @@ _retry_1:
                     unsigned int len;
                     WDT_RSTCNT;
                     len = MIN(((pSM->uPagePerBlock)*(pSM->uPageSize)), Ini_Writer.UserImage[ImgNo].DataSize);
+                    memset((void*)Block_Buff, 0xFF, 512*1024);
                     res = f_read(&file2, Block_Buff, len, &s2);
                     if (res) {
                         printf("res = %d,read size = %d\n",res,s2);

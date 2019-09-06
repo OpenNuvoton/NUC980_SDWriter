@@ -120,13 +120,14 @@ FIL File_Obj;        /* File objects */
  *---------------------------------------------------------------------------*/
 int ProcessINI(char *fileName)
 {
-    char szFatFullName[64], suNvtFullName[512], Cmd[512],tmp[512],filename[512],address[256],block[256];
+    char szFatFullName[64], Cmd[512], filename[512],address[256],block[256];
     int status, i;
     FRESULT     res;
 
     /* initial default value */
     Ini_Writer.Loader.FileName[0] = 0;
-    Ini_Writer.ChipErase = 0;
+    Ini_Writer.Erase.user_choice = 0;
+    Ini_Writer.Erase.EraseAll = 0;
 
     for(i=0; i<MAX_USER_IMAGE; i++) {
         Ini_Writer.UserImage[i].FileName[0] = 0;
@@ -475,7 +476,7 @@ NextMark2:
                     break;
                 }
             } while (1);
-        } else if (strcmp(Cmd, "[Chip Erase]") == 0) {
+        } else if (strcmp(Cmd, "[Erase]") == 0) {
             do {
                 status = readLine(&File_Obj, Cmd);
                 if (status < 0)
@@ -487,9 +488,10 @@ NextMark2:
                 else if (Cmd[0] == '[')
                     goto NextMark2; /* use default value since no assign value before next keyword */
                 else {
-                    Ini_Writer.ChipErase = atoi(Cmd);
-                    printf(" Chip Erase is ");
-                    Ini_Writer.ChipErase?printf("enable\n"): printf("disable\n");
+                    if (sscanf (Cmd,"EraseAll=%d",&(Ini_Writer.Erase.EraseAll)) == 1)
+                        Ini_Writer.Erase.user_choice = 1;
+                    if (sscanf (Cmd,"Start=%d,Length=%d",&(Ini_Writer.Erase.EraseStart), &(Ini_Writer.Erase.EraseLength)) == 2)
+                        Ini_Writer.Erase.user_choice = 1;
                     break;
                 }
             } while (1);
